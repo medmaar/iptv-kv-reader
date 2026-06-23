@@ -1,0 +1,19 @@
+name = "iptv-kv-reader"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[[kv_namespaces]]
+binding = "TRIALS_STREAMBLEU"
+id = "d5e88bf585c54d26aea650d283170abd"
+
+[[kv_namespaces]]
+binding = "TRIALS_MAPLESTREAMTV"
+id = "22b73d28194d49d3af89ffd83148b628"
+
+[[kv_namespaces]]
+binding = "TRIALS_MAPLE4K"
+id = "d34fcc29026649d986bcfc70f21cf02e"
+
+[[kv_namespaces]]
+binding = "TRIALS_MAPLEHD"
+id = "a2aab6160fd74716b23e56c3aa37e9c6"
