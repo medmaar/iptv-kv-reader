@@ -1,0 +1,26 @@
+name: Deploy KV Reader Worker
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Deploy via wrangler
+        run: npx wrangler@latest deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.ACCOUNT_ID }}
+
+      - name: Enable workers.dev subdomain
+        run: |
+          curl -s -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/${{ secrets.ACCOUNT_ID }}/workers/scripts/iptv-kv-reader/subdomain" \
+            -H "Authorization: Bearer ${{ secrets.CF_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"enabled":true}' | python3 -c "import sys,json; print('Subdomain:', json.load(sys.stdin).get('success'))"
