@@ -1,6 +1,8 @@
 /**
- * iptv-kv-reader — reads trial data from ALL 9 site KV namespaces
- * Handles KV pagination to get all entries (not just first 1000)
+ * iptv-kv-reader — combines ALL trial sources:
+ * 1. Cloudflare KV (recent automated trials from all 9 sites)
+ * 2. Activation Panel API (all trials via /trials proxy)
+ * Deduplicates by email+phone
  */
 
 const CORS = {
@@ -9,29 +11,31 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-async function readAllFromKV(kv, site) {
+const PROXY  = 'https://iptv-cors-proxy.medmaar.workers.dev';
+const API_KEY = '35cf68cc83a3a82e1a0ac5361c7b6105';
+
+async function readKV(kv, site) {
+  if (!kv) return [];
   const trials = [];
   try {
     let cursor = null;
     do {
-      const opts = cursor ? { cursor } : {};
-      const list = await kv.list(opts);
+      const list   = cursor ? await kv.list({ cursor }) : await kv.list();
       for (const key of list.keys) {
         try {
           const raw = await kv.get(key.name);
           if (!raw) continue;
           const d = JSON.parse(raw);
-          // Skip cron/scheduler keys that aren't trial entries
           const phone = d.whatsapp || d.phone || '';
           if (!phone || phone.length < 5) continue;
           trials.push({
             id:         key.name,
-            site:       d.site || site,
+            site:       (d.site || site).toLowerCase(),
             email:      d.email || '',
-            phone:      phone,
+            phone:      phone.replace(/\s/g,''),
             name:       d.name || '',
             created_at: d.created_at || null,
-            country:    d.country || '',
+            source:     'kv',
           });
         } catch {}
       }
@@ -41,46 +45,62 @@ async function readAllFromKV(kv, site) {
   return trials;
 }
 
+async function readPanel() {
+  try {
+    const res  = await fetch(`${PROXY}/trials?key=${API_KEY}`);
+    const data = await res.json();
+    return Array.isArray(data.trials) ? data.trials : [];
+  } catch { return []; }
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
-    try {
-      const KVS = [
-        { kv: env.TRIALS_STREAMBLEU,     site: 'streambleu.fr' },
-        { kv: env.TRIALS_MAPLESTREAMTV,  site: 'maplestreamtv.ca' },
-        { kv: env.TRIALS_MAPLE4K,        site: 'maple4k.ca' },
-        { kv: env.TRIALS_MAPLEHD,        site: 'maplehd.ca' },
-        { kv: env.TRIALS_IPTVMOJO,       site: 'iptvmojo.com' },
-        { kv: env.TRIALS_IPTVVDE,        site: 'iptvv.de' },
-        { kv: env.TRIALS_MOJO4KDE,       site: 'mojo4k.de' },
-        { kv: env.TRIALS_MOJO4KFR,       site: 'mojo4k.fr' },
-        { kv: env.TRIALS_NORGESIPTV,     site: 'norgesiptv.com' },
-      ];
+    const KVS = [
+      { kv: env.TRIALS_STREAMBLEU,    site: 'streambleu.fr' },
+      { kv: env.TRIALS_MAPLESTREAMTV, site: 'maplestreamtv.ca' },
+      { kv: env.TRIALS_MAPLE4K,       site: 'maple4k.ca' },
+      { kv: env.TRIALS_MAPLEHD,       site: 'maplehd.ca' },
+      { kv: env.TRIALS_IPTVMOJO,      site: 'iptvmojo.com' },
+      { kv: env.TRIALS_IPTVVDE,       site: 'iptvv.de' },
+      { kv: env.TRIALS_MOJO4KDE,      site: 'mojo4k.de' },
+      { kv: env.TRIALS_MOJO4KFR,      site: 'mojo4k.fr' },
+      { kv: env.TRIALS_NORGESIPTV,    site: 'norgesiptv.com' },
+    ];
 
-      // Read all KVs in parallel
-      const results = await Promise.all(
-        KVS.map(({ kv, site }) => kv ? readAllFromKV(kv, site) : Promise.resolve([]))
-      );
+    // Fetch all sources in parallel
+    const [kvResults, panelTrials] = await Promise.all([
+      Promise.all(KVS.map(({ kv, site }) => readKV(kv, site))),
+      readPanel(),
+    ]);
 
-      const allTrials = results.flat();
+    // Combine and deduplicate by email+phone
+    const seen   = new Set();
+    const all    = [];
 
-      // Sort newest first
-      allTrials.sort((a, b) => {
-        const da = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const db = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return db - da;
-      });
+    const addTrial = (t) => {
+      const key = (t.email + t.phone).toLowerCase();
+      if (!t.email && !t.phone) return;
+      if (seen.has(key)) return;
+      seen.add(key);
+      all.push(t);
+    };
 
-      return new Response(JSON.stringify(allTrials), {
-        headers: { ...CORS, 'Content-Type': 'application/json' }
-      });
+    // KV first (has more complete data)
+    for (const arr of kvResults) arr.forEach(addTrial);
+    // Panel API second
+    panelTrials.forEach(addTrial);
 
-    } catch (e) {
-      return new Response(JSON.stringify({ error: e.message }), {
-        status: 500,
-        headers: { ...CORS, 'Content-Type': 'application/json' }
-      });
-    }
+    // Sort newest first
+    all.sort((a, b) => {
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
+    });
+
+    return new Response(JSON.stringify(all), {
+      headers: { ...CORS, 'Content-Type': 'application/json' }
+    });
   }
 };
