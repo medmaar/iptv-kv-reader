@@ -11,22 +11,23 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Deploy worker with KV bindings via CF API
+      - name: Deploy with all 9 KV bindings
         run: |
-          # Build metadata with all KV bindings
-          METADATA=$(cat << 'JSON'
-          {
-            "main_module": "worker.js",
-            "compatibility_date": "2024-01-01",
-            "bindings": [
-              {"type":"kv_namespace","name":"TRIALS_STREAMBLEU",   "namespace_id":"d5e88bf585c54d26aea650d283170abd"},
-              {"type":"kv_namespace","name":"TRIALS_MAPLESTREAMTV","namespace_id":"22b73d28194d49d3af89ffd83148b628"},
-              {"type":"kv_namespace","name":"TRIALS_MAPLE4K",      "namespace_id":"d34fcc29026649d986bcfc70f21cf02e"},
-              {"type":"kv_namespace","name":"TRIALS_MAPLEHD",      "namespace_id":"a2aab6160fd74716b23e56c3aa37e9c6"}
+          METADATA='{
+            "main_module":"worker.js",
+            "compatibility_date":"2024-01-01",
+            "bindings":[
+              {"type":"kv_namespace","name":"TRIALS_STREAMBLEU",    "namespace_id":"d5e88bf585c54d26aea650d283170abd"},
+              {"type":"kv_namespace","name":"TRIALS_MAPLESTREAMTV", "namespace_id":"22b73d28194d49d3af89ffd83148b628"},
+              {"type":"kv_namespace","name":"TRIALS_MAPLE4K",       "namespace_id":"d34fcc29026649d986bcfc70f21cf02e"},
+              {"type":"kv_namespace","name":"TRIALS_MAPLEHD",       "namespace_id":"a2aab6160fd74716b23e56c3aa37e9c6"},
+              {"type":"kv_namespace","name":"TRIALS_IPTVMOJO",      "namespace_id":"41eacf5f19ba4601abb403d498661743"},
+              {"type":"kv_namespace","name":"TRIALS_IPTVVDE",       "namespace_id":"b9b7a479effb4f789e24e89abd75c2fa"},
+              {"type":"kv_namespace","name":"TRIALS_MOJO4KDE",      "namespace_id":"b848d7bf9dd74deca3ee42cc727ce7fa"},
+              {"type":"kv_namespace","name":"TRIALS_MOJO4KFR",      "namespace_id":"e928e75a62144a48a6a5c7fee9a94a3e"},
+              {"type":"kv_namespace","name":"TRIALS_NORGESIPTV",    "namespace_id":"79ad6a7d5f4349e7a00fd87252024a82"}
             ]
-          }
-          JSON
-          )
+          }'
 
           RESULT=$(curl -s -X PUT \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.ACCOUNT_ID }}/workers/scripts/iptv-kv-reader" \
@@ -36,10 +37,11 @@ jobs:
 
           echo "$RESULT" | python3 -c "
           import sys,json; d=json.load(sys.stdin)
-          print('✅ Deployed' if d.get('success') else '❌ '+str(d.get('errors')))
+          if d.get('success'): print('✅ Deployed with 9 KV bindings')
+          else: print('❌', d.get('errors')); exit(1)
           "
 
-      - name: Enable workers.dev subdomain
+      - name: Enable workers.dev
         run: |
           curl -s -X POST \
             "https://api.cloudflare.com/client/v4/accounts/${{ secrets.ACCOUNT_ID }}/workers/scripts/iptv-kv-reader/subdomain" \
