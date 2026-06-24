@@ -1,0 +1,38 @@
+name: Test Panel API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test API actions
+        run: |
+          python3 - << 'PYEOF2'
+          import urllib.request
+          from urllib.parse import urlencode
+
+          KEY = "${{ secrets.PANEL_API_KEY }}"
+          BASE = "https://activationpanel.ru/api/api.php"
+
+          def call(params):
+              params["api_key"] = KEY
+              url = f"{BASE}?{urlencode(params)}"
+              try:
+                  with urllib.request.urlopen(url, timeout=10) as r:
+                      return r.read().decode()[:500]
+              except Exception as e:
+                  return f"ERROR: {e}"
+
+          for t in [
+              {"action": "bouquet"},
+              {"action": "reseller_info"},
+              {"action": "get_lines"},
+              {"action": "user_list", "sub": "1"},
+              {"action": "user_list", "sub": "all"},
+              {"action": "user_list", "sub": "0"},
+          ]:
+              print(f"\n=== action={t.get('action')} sub={t.get('sub','')} ===")
+              print(call(t))
+          PYEOF2
