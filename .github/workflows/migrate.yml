@@ -1,0 +1,23 @@
+name: Run KV Migration
+
+on:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /migrate endpoint
+        run: |
+          echo "Calling migration endpoint..."
+          RESULT=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev/migrate")
+          echo "Result: $RESULT"
+          echo "$RESULT" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          if d.get('ok'):
+              print(f'SUCCESS: Migrated {d[\"migrated\"]} trials')
+          else:
+              print('ERROR:', d)
+              exit(1)
+          "
