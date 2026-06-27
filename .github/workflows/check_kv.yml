@@ -1,0 +1,25 @@
+name: Check KV State
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch __all_trials__ count
+        run: |
+          echo "Calling KV reader..."
+          RESULT=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "Raw (first 500): ${RESULT:0:500}"
+          echo "$RESULT" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if isinstance(data, list):
+        print(f'SUCCESS: {len(data)} trials in __all_trials__')
+        for t in data[:5]:
+            print(f'  - {t.get(\"site\")} | {t.get(\"email\")} | phone={t.get(\"phone\",\"\")}')
+    else:
+        print('UNEXPECTED FORMAT:', type(data), str(data)[:200])
+except Exception as e:
+    print('PARSE ERROR:', e)
+"
