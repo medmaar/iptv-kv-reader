@@ -1,5 +1,9 @@
 name: Check KV State
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/check_kv.yml'
   workflow_dispatch:
 jobs:
   check:
@@ -16,10 +20,25 @@ try:
     data = json.load(sys.stdin)
     if isinstance(data, list):
         print(f'SUCCESS: {len(data)} trials in __all_trials__')
-        for t in data[:5]:
+        for t in data[:10]:
             print(f'  - {t.get(\"site\")} | {t.get(\"email\")} | phone={t.get(\"phone\",\"\")}')
     else:
         print('UNEXPECTED FORMAT:', type(data), str(data)[:200])
 except Exception as e:
     print('PARSE ERROR:', e)
+    import sys as _sys
+    print('RAW:', _sys.argv)
+"
+      - name: Test /add endpoint
+        run: |
+          echo "Testing /add endpoint..."
+          RESULT=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/add" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"Test","email":"debug@test.com","whatsapp":"1234567890","site":"test.debug","phone":"1234567890","created_at":0}')
+          echo "Add result: $RESULT"
+          RESULT2=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "$RESULT2" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(f'After /add: {len(data)} trials')
 "
