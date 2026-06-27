@@ -8,51 +8,31 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch KV state and test /add
-        run: |
-          mkdir output
-          
-          # 1. GET current state
-          CURRENT=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
-          echo "=== CURRENT __all_trials__ ===" > output/kv_state.txt
-          echo "$CURRENT" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    if isinstance(data, list):
-        print(f'COUNT: {len(data)}')
-        for t in data:
-            print(f'  site={t.get(\"site\")} email={t.get(\"email\")} phone={t.get(\"phone\",\"\")}')
-    else:
-        print('NOT A LIST:', type(data).__name__, str(data)[:300])
-except Exception as e:
-    print('PARSE ERROR:', e)
-" >> output/kv_state.txt
-          echo "RAW (500): ${CURRENT:0:500}" >> output/kv_state.txt
-          
-          # 2. POST a test /add
-          echo "" >> output/kv_state.txt
-          echo "=== TEST /add ===" >> output/kv_state.txt
-          ADD_RESULT=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/add" \
-            -H "Content-Type: application/json" \
-            -d '{"name":"GH Actions Test","email":"ghtest@debug.com","whatsapp":"9999999999","site":"debug.test","phone":"9999999999","created_at":1000000}')
-          echo "Add result: $ADD_RESULT" >> output/kv_state.txt
-          
-          # 3. GET after add
-          AFTER=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
-          echo "" >> output/kv_state.txt
-          echo "=== AFTER /add ===" >> output/kv_state.txt
-          echo "$AFTER" | python3 -c "
-import sys, json
-data = json.load(sys.stdin)
-print(f'COUNT AFTER: {len(data)}')
-for t in data[:5]:
-    print(f'  site={t.get(\"site\")} email={t.get(\"email\")}')
-" >> output/kv_state.txt
-          
-          cat output/kv_state.txt
-          
-      - uses: actions/upload-artifact@v4
+      - uses: actions/checkout@v4
         with:
-          name: kv-state
-          path: output/kv_state.txt
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fetch KV state
+        run: |
+          RAW=$(curl -sv "https://iptv-kv-reader.medmaar.workers.dev" 2>&1)
+          echo "CURL OUTPUT: $RAW" | head -50
+          DATA=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "$DATA" | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin)
+  print('TYPE:', type(d).__name__)
+  print('COUNT:', len(d) if isinstance(d,list) else 'N/A')
+  for t in (d[:5] if isinstance(d,list) else []):
+    print('  ENTRY:', t.get('site'), t.get('email'), t.get('phone',''))
+except Exception as e:
+  print('ERROR:', e)
+  print('RAW:', sys.stdin.read()[:300] if hasattr(sys.stdin,'read') else '?')
+"
+          echo "$DATA" > kv_state.json
+      - name: Commit KV state
+        run: |
+          git config user.email "mo@momaar.com"
+          git config user.name "Mo"
+          git add kv_state.json
+          git diff --cached --quiet || git commit -m "debug: kv state snapshot" --no-verify
+          git push || true
