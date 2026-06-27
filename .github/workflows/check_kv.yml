@@ -8,13 +8,20 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check KV State and Annotate
+      - name: Full KV inventory
         run: |
           DATA=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
-          COUNT=$(echo "$DATA" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(len(d) if isinstance(d,list) else -1)")
-          ENTRIES=$(echo "$DATA" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); [print(f\"  {t.get(\'site\')}|{t.get(\'email\')}|{t.get(\'phone\',\'\')}\" ) for t in (d[:20] if isinstance(d,list) else [])]" 2>&1 | tr \"\n\" \",\")
-          echo "::notice title=KV_COUNT::$COUNT trials in __all_trials__"
-          echo "::notice title=KV_ENTRIES::$ENTRIES"
-          ADD_R=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/add" -H "Content-Type: application/json" -d "{\"name\":\"GH Test\",\"email\":\"ghtest999@debug.com\",\"whatsapp\":\"88888\",\"site\":\"debug\",\"phone\":\"88888\",\"created_at\":1}")
-          AFTER=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev" | python3 -c "import sys,json; d=json.loads(sys.stdin.read()); print(len(d) if isinstance(d,list) else -1)")
-          echo "::notice title=AFTER_ADD::add_result=$ADD_R after_count=$AFTER"
+          python3 -c "
+import json,sys
+d=json.loads(sys.stdin.read())
+print(f\"TOTAL: {len(d)}\")
+sites={}
+for t in d:
+  s=t.get(\'site\',\'unknown\')
+  sites[s]=sites.get(s,0)+1
+for s,c in sorted(sites.items()):
+  print(f\"  {s}: {c}\")
+has_phone=sum(1 for t in d if t.get(\'phone\',\'\'))
+print(f\"Has phone: {has_phone}/{len(d)}\")
+" <<< "$DATA"
+          echo "::notice title=SITE_BREAKDOWN::$(echo "$DATA" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); sites={}; [sites.update({t.get('site','?'): sites.get(t.get('site','?'),0)+1}) for t in d]; print(str(len(d))+' total | '+' | '.join(f'{k}:{v}' for k,v in sorted(sites.items())))")"
