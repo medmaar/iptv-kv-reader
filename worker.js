@@ -105,21 +105,29 @@ export default {
         const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
         const trials = JSON.parse(raw);
         const key = (email + phone).toLowerCase();
-        const exists = trials.some(t => ((t.email||'')+(t.phone||'')).toLowerCase() === key);
-        if (!exists) {
+        const existingIdx = trials.findIndex(t => ((t.email||'')+(t.phone||'')).toLowerCase() === key);
+        if (existingIdx !== -1) {
+          // Upsert: move existing entry to top with updated timestamp + site
+          const existing = trials.splice(existingIdx, 1)[0];
+          existing.created_at = Date.now();
+          existing.site = (trial.site || existing.site || 'unknown').toLowerCase();
+          existing.name = trial.name || existing.name || '';
+          trials.unshift(existing);
+        } else {
+          // New entry — add at top
           trials.unshift({
             id: `trial:${email}`,
             site: (trial.site || 'unknown').toLowerCase(),
             email,
             phone: phone.replace(/\s/g,''),
             name: trial.name || '',
-            created_at: trial.created_at || Date.now(),
+            created_at: Date.now(),
             source: 'kv',
           });
           if (trials.length > 500) trials.splice(500);
-          await env.TRIALS_STREAMBLEU.put('__all_trials__', JSON.stringify(trials));
         }
-        return j({ ok: true, total: trials.length });
+        await env.TRIALS_STREAMBLEU.put('__all_trials__', JSON.stringify(trials));
+        return j({ ok: true, total: trials.length, upserted: existingIdx !== -1 });
       } catch(e) {
         return j({ error: e.message }, 500);
       }
