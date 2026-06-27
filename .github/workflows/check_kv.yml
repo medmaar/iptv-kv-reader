@@ -4,41 +4,55 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/check_kv.yml'
-  workflow_dispatch:
 jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch __all_trials__ count
+      - name: Fetch KV state and test /add
         run: |
-          echo "Calling KV reader..."
-          RESULT=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
-          echo "Raw (first 500): ${RESULT:0:500}"
-          echo "$RESULT" | python3 -c "
+          mkdir output
+          
+          # 1. GET current state
+          CURRENT=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "=== CURRENT __all_trials__ ===" > output/kv_state.txt
+          echo "$CURRENT" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
     if isinstance(data, list):
-        print(f'SUCCESS: {len(data)} trials in __all_trials__')
-        for t in data[:10]:
-            print(f'  - {t.get(\"site\")} | {t.get(\"email\")} | phone={t.get(\"phone\",\"\")}')
+        print(f'COUNT: {len(data)}')
+        for t in data:
+            print(f'  site={t.get(\"site\")} email={t.get(\"email\")} phone={t.get(\"phone\",\"\")}')
     else:
-        print('UNEXPECTED FORMAT:', type(data), str(data)[:200])
+        print('NOT A LIST:', type(data).__name__, str(data)[:300])
 except Exception as e:
     print('PARSE ERROR:', e)
-    import sys as _sys
-    print('RAW:', _sys.argv)
-"
-      - name: Test /add endpoint
-        run: |
-          echo "Testing /add endpoint..."
-          RESULT=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/add" \
+" >> output/kv_state.txt
+          echo "RAW (500): ${CURRENT:0:500}" >> output/kv_state.txt
+          
+          # 2. POST a test /add
+          echo "" >> output/kv_state.txt
+          echo "=== TEST /add ===" >> output/kv_state.txt
+          ADD_RESULT=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/add" \
             -H "Content-Type: application/json" \
-            -d '{"name":"Test","email":"debug@test.com","whatsapp":"1234567890","site":"test.debug","phone":"1234567890","created_at":0}')
-          echo "Add result: $RESULT"
-          RESULT2=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
-          echo "$RESULT2" | python3 -c "
+            -d '{"name":"GH Actions Test","email":"ghtest@debug.com","whatsapp":"9999999999","site":"debug.test","phone":"9999999999","created_at":1000000}')
+          echo "Add result: $ADD_RESULT" >> output/kv_state.txt
+          
+          # 3. GET after add
+          AFTER=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "" >> output/kv_state.txt
+          echo "=== AFTER /add ===" >> output/kv_state.txt
+          echo "$AFTER" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
-print(f'After /add: {len(data)} trials')
-"
+print(f'COUNT AFTER: {len(data)}')
+for t in data[:5]:
+    print(f'  site={t.get(\"site\")} email={t.get(\"email\")}')
+" >> output/kv_state.txt
+          
+          cat output/kv_state.txt
+          
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kv-state
+          path: output/kv_state.txt
