@@ -8,31 +8,51 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Fetch KV state
+      - name: Check KV reader
         run: |
-          RAW=$(curl -sv "https://iptv-kv-reader.medmaar.workers.dev" 2>&1)
-          echo "CURL OUTPUT: $RAW" | head -50
-          DATA=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
-          echo "$DATA" | python3 -c "
+          set -e
+          echo "Step 1: Curl KV reader..."
+          HTTP_CODE=$(curl -s -o /tmp/kv_out.txt -w "%{http_code}" "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "HTTP code: $HTTP_CODE"
+          echo "Response: $(cat /tmp/kv_out.txt | head -c 500)"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ KV reader reachable"
+            python3 - << 'PYEOF'
+import json
+with open('/tmp/kv_out.txt') as f:
+    raw = f.read()
+try:
+    data = json.loads(raw)
+    print(f"Type: {type(data).__name__}")
+    print(f"Length: {len(data) if isinstance(data, list) else 'N/A'}")
+    if isinstance(data, list):
+        for t in data[:10]:
+            print(f"  ENTRY: site={t.get('site')} email={t.get('email')} phone={t.get('phone','')}")
+except Exception as e:
+    print(f"Parse error: {e}")
+    print(f"Raw: {raw[:500]}")
+PYEOF
+          else
+            echo "❌ KV reader returned HTTP $HTTP_CODE"
+            cat /tmp/kv_out.txt
+          fi
+          
+          echo ""
+          echo "Step 2: Test /add..."
+          ADD=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/add" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"GH Test","email":"ghtest@debug.com","whatsapp":"9999999999","site":"debug.test","phone":"9999999999","created_at":1000}')
+          echo "Add result: $ADD"
+          
+          echo ""
+          echo "Step 3: GET after add..."
+          AFTER=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev")
+          echo "$AFTER" | python3 -c "
 import sys,json
 try:
-  d=json.load(sys.stdin)
-  print('TYPE:', type(d).__name__)
-  print('COUNT:', len(d) if isinstance(d,list) else 'N/A')
-  for t in (d[:5] if isinstance(d,list) else []):
-    print('  ENTRY:', t.get('site'), t.get('email'), t.get('phone',''))
+    d=json.loads(sys.stdin.read())
+    print(f'After /add count: {len(d) if isinstance(d,list) else \"?\"}')
 except Exception as e:
-  print('ERROR:', e)
-  print('RAW:', sys.stdin.read()[:300] if hasattr(sys.stdin,'read') else '?')
+    print('Error:', e)
 "
-          echo "$DATA" > kv_state.json
-      - name: Commit KV state
-        run: |
-          git config user.email "mo@momaar.com"
-          git config user.name "Mo"
-          git add kv_state.json
-          git diff --cached --quiet || git commit -m "debug: kv state snapshot" --no-verify
-          git push || true
