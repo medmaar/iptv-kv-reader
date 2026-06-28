@@ -110,9 +110,17 @@ export default {
         })
       );
 
-      // Merge and sort newest first
-      const all = results.flat().sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      const liveEntries = results.flat();
 
+      // If __keys__ not yet built for any namespace, fall back to __all_trials__ blob
+      // (happens first day until /build-keys runs after quota reset)
+      if (liveEntries.length === 0) {
+        const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
+        return new Response(raw, { headers: { ...CORS, 'Content-Type': 'application/json' } });
+      }
+
+      // Sort newest first
+      const all = liveEntries.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
       return new Response(JSON.stringify(all), {
         headers: { ...CORS, 'Content-Type': 'application/json' },
       });
