@@ -51,6 +51,25 @@ export default {
       } catch(e) { return j({ error: e.message }, 500); }
     }
 
+    // ── POST /build-keys — one-time backfill of __keys__ index ────
+    // Uses kv.list() but only called manually once, not on auto-refresh
+    if (url.pathname === '/build-keys' && request.method === 'POST') {
+      const report = {};
+      for (const { binding, site } of SITE_NAMESPACES) {
+        const kv = env[binding];
+        if (!kv) continue;
+        try {
+          const listed = await kv.list({ prefix: 'trial:' });
+          const emails = listed.keys.map(k => k.name.replace('trial:', ''));
+          if (emails.length > 0) {
+            await kv.put('__keys__', JSON.stringify(emails), { expirationTtl: 90 * 24 * 60 * 60 });
+          }
+          report[site] = emails.length;
+        } catch(e) { report[site] = 'error: ' + e.message; }
+      }
+      return j({ ok: true, report });
+    }
+
     // ── GET / — zero-list read from all 9 KV namespaces ─────────
     // Uses __keys__ index (a read op) instead of kv.list() (a list op)
     try {
@@ -103,3 +122,7 @@ export default {
     }
   },
 };
+
+// ── This file intentionally has no kv.list() calls in the hot path.
+// To backfill __keys__ for existing KV entries, run /build-keys once
+// via the GitHub Actions workflow (one-time operation).
