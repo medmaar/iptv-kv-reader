@@ -133,6 +133,52 @@ export default {
       }
     }
 
+    // ── POST /add-bulk — atomic multi-entry upsert (no race conditions) ──
+    if (url.pathname === '/add-bulk' && request.method === 'POST') {
+      try {
+        const entries = await request.json();
+        if (!Array.isArray(entries) || entries.length === 0) return j({ error: 'expected non-empty array' }, 400);
+
+        const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
+        let trials = JSON.parse(raw);
+
+        let added = 0, updated = 0;
+        for (const trial of entries) {
+          const phone = (trial.whatsapp || trial.phone || '').replace(/\s/g,'');
+          const email = (trial.email || '').toLowerCase();
+          if (!email && !phone) continue;
+          const key = email + phone;
+          const existingIdx = trials.findIndex(t => ((t.email||'').toLowerCase() + (t.phone||'')) === key);
+          if (existingIdx !== -1) {
+            const existing = trials.splice(existingIdx, 1)[0];
+            existing.created_at = trial.created_at || Date.now();
+            existing.site = (trial.site || existing.site || 'unknown').toLowerCase();
+            existing.name = trial.name || existing.name || '';
+            trials.unshift(existing);
+            updated++;
+          } else {
+            trials.unshift({
+              id: 'trial:' + email,
+              site: (trial.site || 'unknown').toLowerCase(),
+              email,
+              phone,
+              name: trial.name || '',
+              created_at: trial.created_at || Date.now(),
+              source: trial.source || 'kv',
+            });
+            added++;
+          }
+        }
+        if (trials.length > 500) trials.splice(500);
+        if (added > 0 || updated > 0) {
+          await env.TRIALS_STREAMBLEU.put('__all_trials__', JSON.stringify(trials));
+        }
+        return j({ ok: true, total: trials.length, added, updated });
+      } catch(e) {
+        return j({ error: e.message }, 500);
+      }
+    }
+
     // ── GET / — return all trials (1 read op) ──────────────────────
     const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
     return new Response(raw, { headers: { ...CORS, 'Content-Type': 'application/json' } });
