@@ -1,10 +1,11 @@
 /**
- * iptv-kv-reader v4
- * - GET /          → return all trials from __all_trials__ blob (1 read op)
- * - POST /add      → append a trial to the blob
- * - GET /migrate   → one-time: read all old trial:* keys and consolidate
- * - GET /contacts  → get contacted status
- * - POST /contacts → save contacted status
+ * iptv-kv-reader — Central Trial Dashboard API
+ * 
+ * GET /          → reads live from all 9 site KV namespaces, returns merged trial list
+ * GET /contacts  → returns contacted status map
+ * POST /contacts → saves contacted status
+ *
+ * Workers no longer need to call /add. The local KV write is the source of truth.
  */
 
 const CORS = {
@@ -13,174 +14,103 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-const KVS_CONFIG = [
-  { binding: 'TRIALS_STREAMBLEU',    site: 'streambleu.fr' },
+// Maps binding name → site display label
+const SITE_NAMESPACES = [
+  { binding: 'TRIALS_NORGESIPTV',    site: 'norgesiptv.com'   },
   { binding: 'TRIALS_MAPLESTREAMTV', site: 'maplestreamtv.ca' },
-  { binding: 'TRIALS_MAPLE4K',       site: 'maple4k.ca' },
-  { binding: 'TRIALS_MAPLEHD',       site: 'maplehd.ca' },
-  { binding: 'TRIALS_IPTVMOJO',      site: 'iptvmojo.com' },
-  { binding: 'TRIALS_IPTVVDE',       site: 'iptvv.de' },
-  { binding: 'TRIALS_MOJO4KDE',      site: 'mojo4k.de' },
-  { binding: 'TRIALS_MOJO4KFR',      site: 'mojo4k.fr' },
-  { binding: 'TRIALS_NORGESIPTV',    site: 'norgesiptv.com' },
+  { binding: 'TRIALS_MAPLE4K',       site: 'maple4k.ca'       },
+  { binding: 'TRIALS_MAPLEHD',       site: 'maplehd.ca'       },
+  { binding: 'TRIALS_IPTVMOJO',      site: 'iptvmojo.com'     },
+  { binding: 'TRIALS_IPTVVDE',       site: 'iptvv.de'         },
+  { binding: 'TRIALS_MOJO4KDE',      site: 'mojo4k.de'        },
+  { binding: 'TRIALS_MOJO4KFR',      site: 'mojo4k.fr'        },
+  { binding: 'TRIALS_STREAMBLEU',    site: 'streambleu.fr'    },
 ];
 
 export default {
   async fetch(request, env) {
-    const url = new URL(request.url);
-    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
-
-    const j = (data, s=200) => new Response(JSON.stringify(data), {
-      status: s, headers: { ...CORS, 'Content-Type': 'application/json' }
+    const url  = new URL(request.url);
+    const j    = (data, s = 200) => new Response(JSON.stringify(data), {
+      status: s, headers: { ...CORS, 'Content-Type': 'application/json' },
     });
 
-    // ── GET /migrate — one-time migration from old per-key to blob ──
-    if (url.pathname === '/migrate') {
-      const seen = new Set();
-      const all = [];
+    if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
 
-      for (const cfg of KVS_CONFIG) {
-        const kv = env[cfg.binding];
-        if (!kv) continue;
-        try {
-          let cursor = null;
-          do {
-            const list = cursor ? await kv.list({ cursor }) : await kv.list();
-            for (const key of list.keys) {
-              if (key.name.startsWith('__')) continue;
-              try {
-                const raw = await kv.get(key.name);
-                if (!raw) continue;
-                const d = JSON.parse(raw);
-                const phone = d.whatsapp || d.phone || '';
-                const email = d.email || '';
-                const dedupeKey = (email + phone).toLowerCase();
-                if (!dedupeKey || seen.has(dedupeKey)) continue;
-                seen.add(dedupeKey);
-                all.push({
-                  id: key.name,
-                  site: (d.site || cfg.site).toLowerCase(),
-                  email,
-                  phone: phone.replace(/\s/g,''),
-                  name: d.name || '',
-                  created_at: d.created_at || null,
-                  source: 'kv',
-                });
-              } catch {}
-            }
-            cursor = list.list_complete ? null : list.cursor;
-          } while (cursor);
-        } catch {}
-      }
-
-      // Sort newest first
-      all.sort((a, b) => (b.created_at||0) - (a.created_at||0));
-
-      // Save to blob
-      await env.TRIALS_STREAMBLEU.put('__all_trials__', JSON.stringify(all));
-      return j({ ok: true, migrated: all.length, message: `Migrated ${all.length} trials to single-key blob` });
-    }
-
-    // ── GET /contacts ──────────────────────────────────────────────
+    // ── GET /contacts ────────────────────────────────────────────
     if (url.pathname === '/contacts' && request.method === 'GET') {
       const raw = await env.TRIALS_STREAMBLEU.get('__contacts__') || '{}';
       return new Response(raw, { headers: { ...CORS, 'Content-Type': 'application/json' } });
     }
 
-    // ── POST /contacts ─────────────────────────────────────────────
+    // ── POST /contacts ───────────────────────────────────────────
     if (url.pathname === '/contacts' && request.method === 'POST') {
-      const body = await request.json();
-      await env.TRIALS_STREAMBLEU.put('__contacts__', JSON.stringify(body));
-      return j({ ok: true });
+      try {
+        const body = await request.json();
+        await env.TRIALS_STREAMBLEU.put('__contacts__', JSON.stringify(body));
+        return j({ ok: true });
+      } catch(e) { return j({ error: e.message }, 500); }
     }
 
-    // ── POST /add — new trial from worker ──────────────────────────
-    if (url.pathname === '/add' && request.method === 'POST') {
-      try {
-        const trial = await request.json();
-        const phone = trial.whatsapp || trial.phone || '';
-        const email = trial.email || '';
-        if (!email && !phone) return j({ error: 'missing fields' }, 400);
+    // ── GET / — live read from all 9 KV namespaces ───────────────
+    try {
+      // Read all namespaces in parallel
+      const results = await Promise.all(
+        SITE_NAMESPACES.map(async ({ binding, site }) => {
+          const kv = env[binding];
+          if (!kv) return [];
+          try {
+            const listed = await kv.list();
+            const entries = await Promise.all(
+              listed.keys
+                .filter(k => k.name.startsWith('trial:'))
+                .map(async k => {
+                  try {
+                    const raw = await kv.get(k.name);
+                    if (!raw) return null;
+                    const d = JSON.parse(raw);
+                    const phone = (d.whatsapp || d.phone || '').replace(/\s/g, '');
+                    const email = (d.email || '').toLowerCase();
+                    if (!email && !phone) return null;
+                    return {
+                      id:         k.name,
+                      site:       (d.site || site).toLowerCase(),
+                      email,
+                      phone,
+                      name:       d.name || '',
+                      created_at: d.created_at || null,
+                      expiry:     d.expiry || null,
+                      source:     'kv-live',
+                    };
+                  } catch { return null; }
+                })
+            );
+            return entries.filter(Boolean);
+          } catch { return []; }
+        })
+      );
 
-        const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
-        const trials = JSON.parse(raw);
-        const key = (email + phone).toLowerCase();
-        const existingIdx = trials.findIndex(t => ((t.email||'')+(t.phone||'')).toLowerCase() === key);
-        if (existingIdx !== -1) {
-          // Upsert: move existing entry to top with updated timestamp + site
-          const existing = trials.splice(existingIdx, 1)[0];
-          existing.created_at = Date.now();
-          existing.site = (trial.site || existing.site || 'unknown').toLowerCase();
-          existing.name = trial.name || existing.name || '';
-          trials.unshift(existing);
-        } else {
-          // New entry — add at top
-          trials.unshift({
-            id: `trial:${email}`,
-            site: (trial.site || 'unknown').toLowerCase(),
-            email,
-            phone: phone.replace(/\s/g,''),
-            name: trial.name || '',
-            created_at: Date.now(),
-            source: 'kv',
-          });
-          if (trials.length > 500) trials.splice(500);
-        }
-        await env.TRIALS_STREAMBLEU.put('__all_trials__', JSON.stringify(trials));
-        return j({ ok: true, total: trials.length, upserted: existingIdx !== -1 });
-      } catch(e) {
-        return j({ error: e.message }, 500);
-      }
-    }
-
-    // ── POST /add-bulk — atomic multi-entry upsert (no race conditions) ──
-    if (url.pathname === '/add-bulk' && request.method === 'POST') {
-      try {
-        const entries = await request.json();
-        if (!Array.isArray(entries) || entries.length === 0) return j({ error: 'expected non-empty array' }, 400);
-
-        const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
-        let trials = JSON.parse(raw);
-
-        let added = 0, updated = 0;
-        for (const trial of entries) {
-          const phone = (trial.whatsapp || trial.phone || '').replace(/\s/g,'');
-          const email = (trial.email || '').toLowerCase();
-          if (!email && !phone) continue;
-          const key = email + phone;
-          const existingIdx = trials.findIndex(t => ((t.email||'').toLowerCase() + (t.phone||'')) === key);
-          if (existingIdx !== -1) {
-            const existing = trials.splice(existingIdx, 1)[0];
-            existing.created_at = trial.created_at || Date.now();
-            existing.site = (trial.site || existing.site || 'unknown').toLowerCase();
-            existing.name = trial.name || existing.name || '';
-            trials.unshift(existing);
-            updated++;
-          } else {
-            trials.unshift({
-              id: 'trial:' + email,
-              site: (trial.site || 'unknown').toLowerCase(),
-              email,
-              phone,
-              name: trial.name || '',
-              created_at: trial.created_at || Date.now(),
-              source: trial.source || 'kv',
-            });
-            added++;
+      // Merge + deduplicate by email (keep most recent per email)
+      const byEmail = new Map();
+      for (const siteEntries of results) {
+        for (const t of siteEntries) {
+          const key = t.email || t.phone;
+          if (!key) continue;
+          const existing = byEmail.get(key);
+          if (!existing || (t.created_at || 0) > (existing.created_at || 0)) {
+            byEmail.set(key, t);
           }
         }
-        if (trials.length > 500) trials.splice(500);
-        if (added > 0 || updated > 0) {
-          await env.TRIALS_STREAMBLEU.put('__all_trials__', JSON.stringify(trials));
-        }
-        return j({ ok: true, total: trials.length, added, updated });
-      } catch(e) {
-        return j({ error: e.message }, 500);
       }
-    }
 
-    // ── GET / — return all trials (1 read op) ──────────────────────
-    const raw = await env.TRIALS_STREAMBLEU.get('__all_trials__') || '[]';
-    return new Response(raw, { headers: { ...CORS, 'Content-Type': 'application/json' } });
-  }
+      // Sort newest first
+      const all = [...byEmail.values()].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+      return new Response(JSON.stringify(all), {
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+
+    } catch(e) {
+      return j({ error: e.message }, 500);
+    }
+  },
 };
