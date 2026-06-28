@@ -1,11 +1,12 @@
 /**
  * iptv-kv-reader — Central Trial Dashboard API
- * 
- * GET /          → reads live from all 9 site KV namespaces, returns merged trial list
+ *
+ * ZERO list operations — uses kv.get('__keys__') index per namespace instead of kv.list()
+ * kv.list() costs from the 1,000/day free quota; kv.get() costs from the 100,000/day free quota
+ *
+ * GET /          → reads __keys__ from each namespace (9 reads) + individual trial entries
  * GET /contacts  → returns contacted status map
  * POST /contacts → saves contacted status
- *
- * Workers no longer need to call /add. The local KV write is the source of truth.
  */
 
 const CORS = {
@@ -14,7 +15,6 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-// Maps binding name → site display label
 const SITE_NAMESPACES = [
   { binding: 'TRIALS_NORGESIPTV',    site: 'norgesiptv.com'   },
   { binding: 'TRIALS_MAPLESTREAMTV', site: 'maplestreamtv.ca' },
@@ -29,8 +29,8 @@ const SITE_NAMESPACES = [
 
 export default {
   async fetch(request, env) {
-    const url  = new URL(request.url);
-    const j    = (data, s = 200) => new Response(JSON.stringify(data), {
+    const url = new URL(request.url);
+    const j   = (data, s = 200) => new Response(JSON.stringify(data), {
       status: s, headers: { ...CORS, 'Content-Type': 'application/json' },
     });
 
@@ -51,59 +51,48 @@ export default {
       } catch(e) { return j({ error: e.message }, 500); }
     }
 
-    // ── GET / — live read from all 9 KV namespaces ───────────────
+    // ── GET / — zero-list read from all 9 KV namespaces ─────────
+    // Uses __keys__ index (a read op) instead of kv.list() (a list op)
     try {
-      // Read all namespaces in parallel
       const results = await Promise.all(
         SITE_NAMESPACES.map(async ({ binding, site }) => {
           const kv = env[binding];
           if (!kv) return [];
           try {
-            const listed = await kv.list();
+            // Read the email index — costs 1 read op, not 1 list op
+            const indexRaw = await kv.get('__keys__');
+            if (!indexRaw) return [];
+            const emails = JSON.parse(indexRaw);
+            if (!Array.isArray(emails) || emails.length === 0) return [];
+
+            // Read each trial entry in parallel
             const entries = await Promise.all(
-              listed.keys
-                .filter(k => k.name.startsWith('trial:'))
-                .map(async k => {
-                  try {
-                    const raw = await kv.get(k.name);
-                    if (!raw) return null;
-                    const d = JSON.parse(raw);
-                    const phone = (d.whatsapp || d.phone || '').replace(/\s/g, '');
-                    const email = (d.email || '').toLowerCase();
-                    if (!email && !phone) return null;
-                    return {
-                      id:         k.name,
-                      site:       (d.site || site).toLowerCase(),
-                      email,
-                      phone,
-                      name:       d.name || '',
-                      created_at: d.created_at || null,
-                      expiry:     d.expiry || null,
-                      source:     'kv-live',
-                    };
-                  } catch { return null; }
-                })
+              emails.map(async email => {
+                try {
+                  const raw = await kv.get(`trial:${email}`);
+                  if (!raw) return null;
+                  const d = JSON.parse(raw);
+                  const phone = (d.whatsapp || d.phone || '').replace(/\s/g, '');
+                  return {
+                    id:         `trial:${email}`,
+                    site:       (d.site || site).toLowerCase(),
+                    email:      email.toLowerCase(),
+                    phone,
+                    name:       d.name || '',
+                    created_at: d.created_at || null,
+                    expiry:     d.expiry || null,
+                    source:     'kv-live',
+                  };
+                } catch { return null; }
+              })
             );
             return entries.filter(Boolean);
           } catch { return []; }
         })
       );
 
-      // Merge + deduplicate by email (keep most recent per email)
-      const byEmail = new Map();
-      for (const siteEntries of results) {
-        for (const t of siteEntries) {
-          const key = t.email || t.phone;
-          if (!key) continue;
-          const existing = byEmail.get(key);
-          if (!existing || (t.created_at || 0) > (existing.created_at || 0)) {
-            byEmail.set(key, t);
-          }
-        }
-      }
-
-      // Sort newest first
-      const all = [...byEmail.values()].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+      // Merge and sort newest first
+      const all = results.flat().sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
       return new Response(JSON.stringify(all), {
         headers: { ...CORS, 'Content-Type': 'application/json' },
