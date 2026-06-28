@@ -1,0 +1,13 @@
+name: Build Keys Index
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/build_keys.yml']
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Backfill __keys__ for all 9 namespaces
+        run: |
+          R=$(curl -sf -X POST "https://iptv-kv-reader.medmaar.workers.dev/build-keys")
+          echo "::notice title=BUILD_KEYS_RESULT::$R"
