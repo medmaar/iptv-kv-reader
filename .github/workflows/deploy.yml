@@ -25,7 +25,11 @@ jobs:
               {"type":"kv_namespace","name":"TRIALS_IPTVVDE",       "namespace_id":"b9b7a479effb4f789e24e89abd75c2fa"},
               {"type":"kv_namespace","name":"TRIALS_MOJO4KDE",      "namespace_id":"b848d7bf9dd74deca3ee42cc727ce7fa"},
               {"type":"kv_namespace","name":"TRIALS_MOJO4KFR",      "namespace_id":"e928e75a62144a48a6a5c7fee9a94a3e"},
-              {"type":"kv_namespace","name":"TRIALS_NORGESIPTV",    "namespace_id":"79ad6a7d5f4349e7a00fd87252024a82"}
+              {"type":"kv_namespace","name":"TRIALS_NORGESIPTV",    "namespace_id":"79ad6a7d5f4349e7a00fd87252024a82"},
+              {"type":"kv_namespace","name":"TRIALS_FLIMMERKANAL",       "namespace_id":"7b8077c1af464a929d20981a52193b89"},
+              {"type":"kv_namespace","name":"TRIALS_MOJO4KTV",           "namespace_id":"aa82281c363b4843b928d35f96d152c2"},
+              {"type":"kv_namespace","name":"TRIALS_BUYIPTVNORWAY",      "namespace_id":"f10eab6042014c46a62257cf849c06b5"},
+              {"type":"kv_namespace","name":"TRIALS_STREAMDEUTSCHLAND",  "namespace_id":"5dfc9e7a50564e3aaec17738095a4565"}
             ]
           }'
 
