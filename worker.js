@@ -25,6 +25,10 @@ const SITE_NAMESPACES = [
   { binding: 'TRIALS_MOJO4KDE',      site: 'mojo4k.de'        },
   { binding: 'TRIALS_MOJO4KFR',      site: 'mojo4k.fr'        },
   { binding: 'TRIALS_STREAMBLEU',    site: 'streambleu.fr'    },
+  { binding: 'TRIALS_FLIMMERKANAL',       site: 'flimmerkanal.de'      },
+  { binding: 'TRIALS_MOJO4KTV',           site: 'mojo4ktv.com'         },
+  { binding: 'TRIALS_BUYIPTVNORWAY',      site: 'buyiptvnorway.com'    },
+  { binding: 'TRIALS_STREAMDEUTSCHLAND',  site: 'streamdeutschland.de' },
 ];
 
 export default {
