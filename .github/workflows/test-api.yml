@@ -7,32 +7,42 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Test API actions
+      - name: Clean test contacts from KV
         run: |
-          python3 - << 'PYEOF2'
-          import urllib.request
-          from urllib.parse import urlencode
+          echo "=== Fetching current contacts ==="
+          CONTACTS=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev/contacts")
+          echo "$CONTACTS"
 
-          KEY = "${{ secrets.PANEL_API_KEY }}"
-          BASE = "https://activationpanel.ru/api/api.php"
+          echo ""
+          echo "=== Removing test email entries ==="
+          CLEANED=$(echo "$CONTACTS" | python3 -c "
+import sys, json
 
-          def call(params):
-              params["api_key"] = KEY
-              url = f"{BASE}?{urlencode(params)}"
-              try:
-                  with urllib.request.urlopen(url, timeout=10) as r:
-                      return r.read().decode()[:500]
-              except Exception as e:
-                  return f"ERROR: {e}"
+data = json.load(sys.stdin)
 
-          for t in [
-              {"action": "bouquet"},
-              {"action": "reseller_info"},
-              {"action": "get_lines"},
-              {"action": "user_list", "sub": "1"},
-              {"action": "user_list", "sub": "all"},
-              {"action": "user_list", "sub": "0"},
-          ]:
-              print(f"\n=== action={t.get('action')} sub={t.get('sub','')} ===")
-              print(call(t))
-          PYEOF2
+TEST_PATTERNS = [
+  'elmaaroufi',
+  'elmaarccd',
+  'elmaarouc',
+  'elmaarcsc',
+  'elmaarouscs',
+]
+
+before = len(data)
+cleaned = {k: v for k, v in data.items()
+           if not any(p in k.lower() for p in TEST_PATTERNS)}
+after = len(cleaned)
+
+import sys
+sys.stderr.write(f'Removed {before - after} test entries, kept {after} real contacts\n')
+print(json.dumps(cleaned))
+")
+
+          echo ""
+          echo "=== Posting cleaned contacts ==="
+          RESULT=$(curl -s -X POST \
+            "https://iptv-kv-reader.medmaar.workers.dev/contacts" \
+            -H "Content-Type: application/json" \
+            -d "$CLEANED")
+          echo "Result: $RESULT"
+          echo "Done."
