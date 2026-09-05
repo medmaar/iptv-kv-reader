@@ -7,19 +7,41 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - name: Call /build-keys endpoint (backfill __keys__ index)
+      - name: Clean test contacts from KV
         run: |
-          echo "Calling build-keys endpoint..."
-          RESULT=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/build-keys")
+          echo "Fetching current contacts..."
+          CONTACTS=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev/contacts")
+          echo "Current contacts: $CONTACTS"
+
+          echo ""
+          echo "Removing test email entries..."
+
+          CLEANED=$(echo "$CONTACTS" | python3 -c "
+import sys, json
+
+data = json.load(sys.stdin)
+
+# Remove any trial ID whose email matches Mo's test patterns
+TEST_PATTERNS = [
+  'elmaaroufi',
+  'elmaarccd',
+  'elmaarouc',
+  'elmaarcsc',
+]
+
+before = len(data)
+cleaned = {k: v for k, v in data.items()
+           if not any(p in k.lower() for p in TEST_PATTERNS)}
+after = len(cleaned)
+print(json.dumps(cleaned))
+import sys
+sys.stderr.write(f'Removed {before - after} test entries, kept {after} real contacts\n')
+")
+
+          echo ""
+          echo "Posting cleaned contacts back..."
+          RESULT=$(curl -s -X POST \
+            "https://iptv-kv-reader.medmaar.workers.dev/contacts" \
+            -H "Content-Type: application/json" \
+            -d "$CLEANED")
           echo "Result: $RESULT"
-          echo "$RESULT" | python3 -c "
-          import sys, json
-          d = json.load(sys.stdin)
-          if d.get('ok'):
-              print('SUCCESS')
-              for site, count in d.get('report', {}).items():
-                  print(f'  {site}: {count} keys')
-          else:
-              print('ERROR:', d)
-              exit(1)
-          "
