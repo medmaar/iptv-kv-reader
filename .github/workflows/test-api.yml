@@ -1,48 +1,35 @@
-name: Test Panel API
+name: Clean Test Contacts
 
 on:
   workflow_dispatch:
 
 jobs:
-  test:
+  clean:
     runs-on: ubuntu-latest
     steps:
-      - name: Clean test contacts from KV
+      - name: Fetch and clean contacts
         run: |
-          echo "=== Fetching current contacts ==="
-          CONTACTS=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev/contacts")
-          echo "$CONTACTS"
+          CONTACTS=$(curl -sf "https://iptv-kv-reader.medmaar.workers.dev/contacts")
+          echo "Fetched contacts"
 
-          echo ""
-          echo "=== Removing test email entries ==="
-          CLEANED=$(echo "$CONTACTS" | python3 -c "
-import sys, json
+          # Use node to filter (available on all runners)
+          CLEANED=$(node -e "
+            const data = JSON.parse(process.env.CONTACTS || '{}');
+            const patterns = ['elmaaroufi','elmaarccd','elmaarouc','elmaarcsc'];
+            const before = Object.keys(data).length;
+            const cleaned = Object.fromEntries(
+              Object.entries(data).filter(([k]) =>
+                !patterns.some(p => k.toLowerCase().includes(p))
+              )
+            );
+            const after = Object.keys(cleaned).length;
+            process.stderr.write('Removed ' + (before-after) + ' test entries, kept ' + after + ' real contacts\n');
+            process.stdout.write(JSON.stringify(cleaned));
+          " CONTACTS="$CONTACTS")
 
-data = json.load(sys.stdin)
-
-TEST_PATTERNS = [
-  'elmaaroufi',
-  'elmaarccd',
-  'elmaarouc',
-  'elmaarcsc',
-  'elmaarouscs',
-]
-
-before = len(data)
-cleaned = {k: v for k, v in data.items()
-           if not any(p in k.lower() for p in TEST_PATTERNS)}
-after = len(cleaned)
-
-import sys
-sys.stderr.write(f'Removed {before - after} test entries, kept {after} real contacts\n')
-print(json.dumps(cleaned))
-")
-
-          echo ""
-          echo "=== Posting cleaned contacts ==="
-          RESULT=$(curl -s -X POST \
+          echo "Posting cleaned contacts..."
+          curl -sf -X POST \
             "https://iptv-kv-reader.medmaar.workers.dev/contacts" \
             -H "Content-Type: application/json" \
-            -d "$CLEANED")
-          echo "Result: $RESULT"
-          echo "Done."
+            -d "$CLEANED"
+          echo "Done"
