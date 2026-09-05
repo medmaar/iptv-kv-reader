@@ -7,16 +7,18 @@ jobs:
   migrate:
     runs-on: ubuntu-latest
     steps:
-      - name: Call /migrate endpoint
+      - name: Call /build-keys endpoint (backfill __keys__ index)
         run: |
-          echo "Calling migration endpoint..."
-          RESULT=$(curl -s "https://iptv-kv-reader.medmaar.workers.dev/migrate")
+          echo "Calling build-keys endpoint..."
+          RESULT=$(curl -s -X POST "https://iptv-kv-reader.medmaar.workers.dev/build-keys")
           echo "Result: $RESULT"
           echo "$RESULT" | python3 -c "
           import sys, json
           d = json.load(sys.stdin)
           if d.get('ok'):
-              print(f'SUCCESS: Migrated {d[\"migrated\"]} trials')
+              print('SUCCESS')
+              for site, count in d.get('report', {}).items():
+                  print(f'  {site}: {count} keys')
           else:
               print('ERROR:', d)
               exit(1)
