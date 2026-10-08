@@ -29,7 +29,8 @@ jobs:
               {"type":"kv_namespace","name":"TRIALS_FLIMMERKANAL",       "namespace_id":"7b8077c1af464a929d20981a52193b89"},
               {"type":"kv_namespace","name":"TRIALS_MOJO4KTV",           "namespace_id":"aa82281c363b4843b928d35f96d152c2"},
               {"type":"kv_namespace","name":"TRIALS_BUYIPTVNORWAY",      "namespace_id":"f10eab6042014c46a62257cf849c06b5"},
-              {"type":"kv_namespace","name":"TRIALS_STREAMDEUTSCHLAND",  "namespace_id":"5dfc9e7a50564e3aaec17738095a4565"}
+              {"type":"kv_namespace","name":"TRIALS_STREAMDEUTSCHLAND",  "namespace_id":"5dfc9e7a50564e3aaec17738095a4565"},
+              {"type":"kv_namespace","name":"TRIALS_IPTVMAPLETV",        "namespace_id":"6741b6342df744e98b14033ff1598c0f"}
             ]
           }'
 

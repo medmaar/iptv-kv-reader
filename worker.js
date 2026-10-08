@@ -29,6 +29,7 @@ const SITE_NAMESPACES = [
   { binding: 'TRIALS_MOJO4KTV',           site: 'mojo4ktv.com'         },
   { binding: 'TRIALS_BUYIPTVNORWAY',      site: 'buyiptvnorway.com'    },
   { binding: 'TRIALS_STREAMDEUTSCHLAND',  site: 'streamdeutschland.de' },
+  { binding: 'TRIALS_IPTVMAPLETV',        site: 'iptvmapletv.com'      },
 ];
 
 export default {
