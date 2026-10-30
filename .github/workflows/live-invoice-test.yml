@@ -1,0 +1,20 @@
+name: Live invoice test
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['tools/live-invoice-test/**', '.github/workflows/live-invoice-test.yml']
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Install Playwright
+        working-directory: tools/live-invoice-test
+        run: npm init -y >/dev/null && npm i playwright@1.48.2 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+      - name: Run
+        working-directory: tools/live-invoice-test
+        env: { TO: help@maple4k.ca, TO_ALT: help@maplehd.ca }
+        run: node test.mjs | tee result.txt && echo '```' >> $GITHUB_STEP_SUMMARY && cat result.txt >> $GITHUB_STEP_SUMMARY && echo '```' >> $GITHUB_STEP_SUMMARY
