@@ -18,14 +18,17 @@ const PAGES = [
   ["mojo4k.de", "https://mojo4k.de/1-jahr-1-gerat"],
   ["streamdeutschland.de", "https://streamdeutschland.de/iptv-kaufen-1-geraet-1-jahr"],
   ["mojo4k.fr", "https://mojo4k.fr/order.html?devices=1&duration=12"],
+  ["mojo4k.uk", "https://mojo4k.uk/plans/1-month-2-devices/"],
 ];
+// norgesiptv.com is manual: no invoice to the client, only the notice to the inbox.
+const EXPECT = { "norgesiptv.com": '"invoice":false' };
 const only = process.argv.slice(2);
 const browser = await chromium.launch();
 for (const [site, url] of PAGES.filter(([s]) => !only.length || only.includes(s))) {
   const to = site === "maple4k.ca" ? TO_ALT : TO;
   const ctx = await browser.newContext({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36" });
   const page = await ctx.newPage();
-  const log = { errors: [], csp: [], invoiceJs: null, invoice: null, orderFaked: false };
+  const log = { errors: [], csp: [], invoiceJs: null, invoice: null, posts: 0, hook: "", orderFaked: false };
   page.on("pageerror", (e) => log.errors.push(e.message.slice(0, 120)));
   page.on("console", (m) => { if (/Content Security Policy|CSP/i.test(m.text())) log.csp.push(m.text().slice(0, 200)); });
   await page.route("https://api.emailjs.com/**", (r) => { log.orderFaked = true; return r.fulfill({ status: 200, body: "OK", headers: { "Access-Control-Allow-Origin": "*" } }); });
@@ -34,8 +37,8 @@ for (const [site, url] of PAGES.filter(([s]) => !only.length || only.includes(s)
     : r.continue());
   page.on("response", async (res) => {
     const u = res.url();
-    if (u.endsWith("/invoice.js")) log.invoiceJs = res.status();
-    if (/workers\.dev\/invoice$/.test(u) && res.request().method() === "POST") log.invoice = `${res.status()} ${await res.text().catch(() => "")}`;
+    if (u.endsWith("/invoice.js")) { log.invoiceJs = res.status(); log.hook = (await res.text().catch(() => "")).includes("seen={}") ? "new" : "OLD"; }
+    if (/(workers\.dev|mojo4k\.uk\/api)\/invoice$/.test(u) && res.request().method() === "POST") { log.posts++; log.invoice = `${res.status()} ${await res.text().catch(() => "")}`; }
   });
   try {
     await page.goto(url, { waitUntil: "networkidle", timeout: 45000 });
@@ -61,8 +64,10 @@ for (const [site, url] of PAGES.filter(([s]) => !only.length || only.includes(s)
     const btn = await form.$('[type="submit"], #submit-btn, button.submit-btn') || await page.$("#submit-btn");
     if (btn) await btn.click(); else await form.evaluate((f) => f.requestSubmit());
     for (let i = 0; i < 100 && !log.invoice; i++) await page.waitForTimeout(100);
+    await page.waitForTimeout(2000); // any second post for the same order would show up here
   } catch (e) { log.errors.push("TEST: " + e.message.slice(0, 160)); }
-  console.log(`${log.invoice && log.invoice.includes('"invoice":true') ? "PASS" : "FAIL"} ${site}  invoice.js=${log.invoiceJs ?? "-"} orderFaked=${log.orderFaked} invoice=${log.invoice ?? "none"}${log.errors.length ? "  errors=" + JSON.stringify(log.errors.slice(0, 3)) : ""}${log.csp.length ? "  csp=" + JSON.stringify(log.csp.slice(0, 2)) : ""}`);
+  const ok = log.invoice && log.invoice.includes(EXPECT[site] || '"invoice":true') && log.posts === 1;
+  console.log(`${ok ? "PASS" : "FAIL"} ${site}  posts=${log.posts} invoice.js=${log.invoiceJs ?? "-"}${log.hook ? "(" + log.hook + ")" : ""} orderFaked=${log.orderFaked} invoice=${log.invoice ?? "none"}${log.errors.length ? "  errors=" + JSON.stringify(log.errors.slice(0, 3)) : ""}${log.csp.length ? "  csp=" + JSON.stringify(log.csp.slice(0, 2)) : ""}`);
   await ctx.close();
 }
 await browser.close();
