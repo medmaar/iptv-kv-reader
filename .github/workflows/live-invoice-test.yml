@@ -14,7 +14,9 @@ jobs:
       - name: Install Playwright
         working-directory: tools/live-invoice-test
         run: npm init -y >/dev/null && npm i playwright@1.48.2 >/dev/null && npx playwright install --with-deps chromium >/dev/null
+      - name: Diagnose
+        run: bash tools/live-invoice-test/diag.sh | tee -a $GITHUB_STEP_SUMMARY
       - name: Run
         working-directory: tools/live-invoice-test
-        env: { TO: help@maple4k.ca, TO_ALT: help@maplehd.ca }
-        run: node test.mjs | tee result.txt && echo '```' >> $GITHUB_STEP_SUMMARY && cat result.txt >> $GITHUB_STEP_SUMMARY && echo '```' >> $GITHUB_STEP_SUMMARY
+        env: { TO: help@maple4k.ca, TO_ALT: help@maplehd.ca, ONLY: streambleu.fr }
+        run: node test.mjs $ONLY | tee result.txt && echo '```' >> $GITHUB_STEP_SUMMARY && cat result.txt >> $GITHUB_STEP_SUMMARY && echo '```' >> $GITHUB_STEP_SUMMARY
