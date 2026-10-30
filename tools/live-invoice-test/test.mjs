@@ -46,8 +46,8 @@ for (const [site, url] of PAGES.filter(([s]) => !only.length || only.includes(s)
     const email = await page.$('input[type="email"]:visible, input[name*="email" i]:visible, input[id*="email" i]:visible');
     if (!email) throw new Error("no email field");
     const form = await email.evaluateHandle((e) => e.form || e.closest("section,main,div.card,div[class*=form]") || document.body);
-    // Type like a person so React forms pick the values up.
-    const fields = await form.evaluateHandle((f) => [...f.querySelectorAll("input, select, textarea")].filter((el) => el.type !== "hidden" && el.offsetParent !== null));
+    // Type like a person so React forms pick the values up. Honeypot fields (tabindex -1 / aria-hidden) stay empty.
+    const fields = await form.evaluateHandle((f) => [...f.querySelectorAll("input, select, textarea")].filter((el) => el.type !== "hidden" && el.offsetParent !== null && el.tabIndex !== -1 && !el.closest('[aria-hidden="true"]')));
     const n = await fields.evaluate((a) => a.length);
     for (let i = 0; i < n; i++) {
       const el = await fields.evaluateHandle((a, i) => a[i], i);
