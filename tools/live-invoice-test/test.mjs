@@ -30,6 +30,8 @@ for (const [site, url] of PAGES.filter(([s]) => !only.length || only.includes(s)
   const page = await ctx.newPage();
   const log = { errors: [], csp: [], invoiceJs: null, invoice: null, posts: 0, hook: "", orderFaked: false };
   page.on("pageerror", (e) => log.errors.push(e.message.slice(0, 120)));
+  page.on("requestfailed", (r) => { if (/invoice/.test(r.url())) log.errors.push(`request failed ${r.url()} ${r.failure() && r.failure().errorText}`); });
+  page.on("response", async (res) => { if (/\/js\/site\.js/.test(res.url())) log.siteJs = `${res.url().split("?")[1]} invoice-hook=${(await res.text().catch(() => "")).includes("/api/invoice")}`; });
   page.on("console", (m) => { if (/Content Security Policy|CSP/i.test(m.text())) log.csp.push(m.text().slice(0, 200)); });
   await page.route("https://api.emailjs.com/**", (r) => { log.orderFaked = true; return r.fulfill({ status: 200, body: "OK", headers: { "Access-Control-Allow-Origin": "*" } }); });
   await page.route(/\/api\/ajax$/, (r) => r.request().method() === "POST"
@@ -67,7 +69,7 @@ for (const [site, url] of PAGES.filter(([s]) => !only.length || only.includes(s)
     await page.waitForTimeout(2000); // any second post for the same order would show up here
   } catch (e) { log.errors.push("TEST: " + e.message.slice(0, 160)); }
   const ok = log.invoice && log.invoice.includes(EXPECT[site] || '"invoice":true') && log.posts === 1;
-  console.log(`${ok ? "PASS" : "FAIL"} ${site}  posts=${log.posts} invoice.js=${log.invoiceJs ?? "-"}${log.hook ? "(" + log.hook + ")" : ""} orderFaked=${log.orderFaked} invoice=${log.invoice ?? "none"}${log.errors.length ? "  errors=" + JSON.stringify(log.errors.slice(0, 3)) : ""}${log.csp.length ? "  csp=" + JSON.stringify(log.csp.slice(0, 2)) : ""}`);
+  console.log(`${ok ? "PASS" : "FAIL"} ${site}  posts=${log.posts} invoice.js=${log.invoiceJs ?? "-"}${log.hook ? "(" + log.hook + ")" : ""}${log.siteJs ? " site.js=" + log.siteJs : ""} orderFaked=${log.orderFaked} invoice=${log.invoice ?? "none"}${log.errors.length ? "  errors=" + JSON.stringify(log.errors.slice(0, 3)) : ""}${log.csp.length ? "  csp=" + JSON.stringify(log.csp.slice(0, 2)) : ""}`);
   await ctx.close();
 }
 await browser.close();

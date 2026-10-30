@@ -18,5 +18,5 @@ jobs:
         run: bash tools/live-invoice-test/diag.sh | tee -a $GITHUB_STEP_SUMMARY
       - name: Run
         working-directory: tools/live-invoice-test
-        env: { TO: help@maple4k.ca, TO_ALT: help@maplehd.ca, ONLY: "" }
+        env: { TO: help@maple4k.ca, TO_ALT: help@maplehd.ca, ONLY: "mojo4k.uk" }
         run: node test.mjs $ONLY | tee result.txt && echo '```' >> $GITHUB_STEP_SUMMARY && cat result.txt >> $GITHUB_STEP_SUMMARY && echo '```' >> $GITHUB_STEP_SUMMARY
