@@ -16,6 +16,7 @@ jobs:
           METADATA='{
             "main_module":"worker.js",
             "compatibility_date":"2024-01-01",
+            "keep_bindings":["secret_text","secret_key"],
             "bindings":[
               {"type":"kv_namespace","name":"TRIALS_STREAMBLEU",    "namespace_id":"d5e88bf585c54d26aea650d283170abd"},
               {"type":"kv_namespace","name":"TRIALS_MAPLESTREAMTV", "namespace_id":"22b73d28194d49d3af89ffd83148b628"},

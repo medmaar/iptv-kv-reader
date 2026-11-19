@@ -4,6 +4,7 @@
  * ZERO list operations — uses kv.get('__keys__') index per namespace instead of kv.list()
  * kv.list() costs from the 1,000/day free quota; kv.get() costs from the 100,000/day free quota
  *
+ * All routes require the READER_TOKEN secret (see authorized()).
  * GET /          → reads __keys__ from each namespace (9 reads) + individual trial entries
  * GET /contacts  → returns contacted status map
  * POST /contacts → saves contacted status
@@ -12,8 +13,23 @@
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-KV-Token',
 };
+
+// Every route needs the READER_TOKEN secret (Cloudflare → Workers → iptv-kv-reader →
+// Settings → Variables and Secrets). Send it as "Authorization: Bearer <token>",
+// "X-KV-Token: <token>" or "?key=<token>". If the secret is not set, everything is locked.
+function authorized(request, url, env) {
+  const want = env.READER_TOKEN || '';
+  if (!want) return false;
+  const auth = request.headers.get('Authorization') || '';
+  const got = auth.startsWith('Bearer ') ? auth.slice(7)
+    : (request.headers.get('X-KV-Token') || url.searchParams.get('key') || '');
+  if (got.length !== want.length) return false;
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= got.charCodeAt(i) ^ want.charCodeAt(i);
+  return diff === 0;
+}
 
 const SITE_NAMESPACES = [
   { binding: 'TRIALS_NORGESIPTV',    site: 'norgesiptv.com'   },
@@ -40,6 +56,12 @@ export default {
     });
 
     if (request.method === 'OPTIONS') return new Response(null, { headers: CORS });
+
+    if (!authorized(request, url, env)) return j({ error: 'unauthorized' }, 401);
+
+    // ── POST /add — trial workers ping this after each trial. Trials are read
+    // straight from each site's KV, so nothing to store here; just acknowledge.
+    if (url.pathname === '/add' && request.method === 'POST') return j({ ok: true });
 
     // ── GET /contacts ────────────────────────────────────────────
     if (url.pathname === '/contacts' && request.method === 'GET') {

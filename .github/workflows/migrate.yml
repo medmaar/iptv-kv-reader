@@ -10,5 +10,5 @@ jobs:
       - name: Call /build-keys endpoint (backfill __keys__ index)
         run: |
           echo "Calling build-keys..."
-          RESULT=$(curl -sf -X POST "https://iptv-kv-reader.medmaar.workers.dev/build-keys")
+          RESULT=$(curl -sf -X POST -H "Authorization: Bearer ${{ secrets.READER_TOKEN }}" "https://iptv-kv-reader.medmaar.workers.dev/build-keys")
           echo "Result: $RESULT"
